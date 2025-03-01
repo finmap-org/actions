@@ -57,7 +57,11 @@ runs:
         
               mkdir -p "${GITHUB_WORKSPACE}/history"
               history_file="${GITHUB_WORKSPACE}/history/$(basename ${filename})"
-              tsv_file=$(basename "${filename}" | sed 's/json/tsv/')
+              tsv_file=$( echo "${GITHUB_WORKSPACE}/sectors/$(basename ${filename} | sed 's/json/tsv/')" )
+              if [ ! -f "$tsv_file" ]; then
+                echo "ERROR: File doesn't exist: ${tsv_file}"
+                exit 1
+              fi
               
               # Read predefined sectors from TSV file, excluding empty sectors
               SECTORS=() # clear the array
@@ -65,7 +69,7 @@ runs:
                 if [ ! -z "$sector" ] && [ "$sector" != "sector" ]; then
                   SECTORS+=("$sector")
                 fi
-              done < <(cut -f1 "${GITHUB_WORKSPACE}/sectors/${tsv_file}" | sort -u)
+              done < <(cut -f1 "${tsv_file}" | sort -u)
 
               # Create JSON array of all sectors with zero values for initialization
               sectors_json=$(printf '%s\n' "${SECTORS[@]}" | jq -R -s 'split("\n")[:-1] | 
