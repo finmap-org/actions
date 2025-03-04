@@ -2,6 +2,8 @@ name: 'Update Histogram Datafiles'
 description: 'Composite Github Action'
 
 inputs:
+  workdir:
+    required: true
   start_date:
     description: 'Start date, YYYY/MM/DD'
     required: true
@@ -18,6 +20,7 @@ runs:
         # Convert YYYY-MM-DD into YYYY/MM/DD
         START_DATE=$( echo ${{ inputs.start_date }} | sed 's/-/\//g' )
         END_DATE=$( echo ${{ inputs.end_date }} | sed 's/-/\//g' )
+        echo "WORKDIR=${{ inputs.workdir }}" >> $GITHUB_ENV
         echo "START_DATE=$START_DATE" >> $GITHUB_ENV
         echo "END_DATE=$END_DATE" >> $GITHUB_ENV
 
@@ -40,7 +43,7 @@ runs:
             continue
           fi
         
-          CURRENT_FOLDER="$GITHUB_WORKSPACE/marketdata/$(date --utc -d "$current_date" +'%Y/%m/%d')"
+          CURRENT_FOLDER="${WORKDIR}/marketdata/$(date --utc -d "$current_date" +'%Y/%m/%d')"
           if [ ! -d "${CURRENT_FOLDER}" ]; then
             continue
           fi
@@ -55,9 +58,9 @@ runs:
                 continue
               fi
         
-              mkdir -p "${GITHUB_WORKSPACE}/history"
-              history_file="${GITHUB_WORKSPACE}/history/$(basename ${filename})"
-              tsv_file=$( echo "${GITHUB_WORKSPACE}/sectors/$(basename ${filename} | sed 's/json/tsv/')" )
+              mkdir -p "${WORKDIR}/history"
+              history_file="${WORKDIR}/history/$(basename ${filename})"
+              tsv_file=$( echo "${WORKDIR}/sectors/$(basename ${filename} | sed 's/json/tsv/')" )
               if [ ! -f "$tsv_file" ]; then
                 echo "ERROR: File doesn't exist: ${tsv_file}"
                 exit 1
