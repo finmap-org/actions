@@ -44,6 +44,11 @@ runs:
           fi
         
           CURRENT_FOLDER="${WORKDIR}/marketdata/$(date --utc -d "$current_date" +'%Y/%m/%d')"
+          echo "DEBUG"
+          echo "PWD = $(pwd)"
+          echo "WORKDIR = $WORKDIR"
+          echo "CURRENT_FOLDER = $CURRENT_FOLDER"
+          ls -lah "$CURRENT_FOLDER"
           if [ ! -d "${CURRENT_FOLDER}" ]; then
             continue
           fi
