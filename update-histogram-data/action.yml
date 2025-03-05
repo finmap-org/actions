@@ -59,8 +59,6 @@ runs:
               fi
         
               mkdir -p "${WORKDIR}/history"
-              echo "DEBUG START"
-              echo "$(ls -l ${WORKDIR}/history/)"
               history_file="${WORKDIR}/history/$(basename ${filename})"
               tsv_file=$( echo "${WORKDIR}/sectors/$(basename ${filename} | sed 's/json/tsv/')" )
               if [ ! -f "$tsv_file" ]; then
@@ -174,11 +172,7 @@ runs:
                       )
                     )
                   )
-                end' "$history_file" > "${history_file}.tmp"
-                echo "$(ls -l ${WORKDIR}/history/)"
-                tail "${history_file}.tmp"
-                echo "DEBUG END"
-                mv "${history_file}.tmp" "$history_file"
+                end' "$history_file" > "${history_file}.tmp" && mv "${history_file}.tmp" "$history_file"
               fi
             fi
           done
