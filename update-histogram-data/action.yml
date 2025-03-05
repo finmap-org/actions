@@ -176,6 +176,7 @@ runs:
                   )
                 end' "$history_file" > "${history_file}.tmp"
                 echo "$(ls -l ${WORKDIR}/history/)"
+                tail "${history_file}.tmp"
                 echo "DEBUG END"
                 mv "${history_file}.tmp" "$history_file"
               fi
