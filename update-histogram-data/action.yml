@@ -44,11 +44,6 @@ runs:
           fi
         
           CURRENT_FOLDER="${WORKDIR}/marketdata/$(date --utc -d "$current_date" +'%Y/%m/%d')"
-          echo "DEBUG"
-          echo "PWD = $(pwd)"
-          echo "WORKDIR = $WORKDIR"
-          echo "CURRENT_FOLDER = $CURRENT_FOLDER"
-          ls -lah "$CURRENT_FOLDER"
           if [ ! -d "${CURRENT_FOLDER}" ]; then
             continue
           fi
@@ -64,6 +59,8 @@ runs:
               fi
         
               mkdir -p "${WORKDIR}/history"
+              echo "DEBUG START"
+              echo "$(ls -lah ${WORKDIR}/history/)"
               history_file="${WORKDIR}/history/$(basename ${filename})"
               tsv_file=$( echo "${WORKDIR}/sectors/$(basename ${filename} | sed 's/json/tsv/')" )
               if [ ! -f "$tsv_file" ]; then
@@ -180,5 +177,7 @@ runs:
                 end' "$history_file" > "${history_file}.tmp" && mv "${history_file}.tmp" "$history_file"
               fi
             fi
+            echo "$(ls -lah ${WORKDIR}/history/)"
+            echo "DEBUG END"
           done
         done
