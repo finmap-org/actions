@@ -174,10 +174,11 @@ runs:
                       )
                     )
                   )
-                end' "$history_file" > "${history_file}.tmp" && mv "${history_file}.tmp" "$history_file"
+                end' "$history_file" > "${history_file}.tmp"
+                echo "$(ls -l ${WORKDIR}/history/)"
+                echo "DEBUG END"
+                mv "${history_file}.tmp" "$history_file"
               fi
             fi
-            echo "$(ls -l ${WORKDIR}/history/)"
-            echo "DEBUG END"
           done
         done
