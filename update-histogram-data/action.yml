@@ -139,6 +139,8 @@ runs:
                 echo "$current_data" | jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | {sectorName, value, marketCap}'
                 echo "Existing history data:"
                 jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | {sectorName, value: .value[-1], marketCap: .marketCap[-1]}' "$history_file"
+                echo "Full value array for Energy sector:"
+                jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | .value' "$history_file"
                 # Merge new data with existing data
                 jq --compact-output --argjson new_data "$current_data" '
                 # First, check if the new date already exists
@@ -156,12 +158,12 @@ runs:
                     reduce ($new_data.sectors[] | {
                       sectorName: .sectorName,
                       data: {
-                        marketCap: .marketCap,
-                        value: .value,
-                        volume: .volume,
-                        priceChangePct: .priceChangePct,
-                        tradesNumber: .tradesNumber,
-                        itemsNumber: .itemsNumber
+                        marketCap: (.marketCap | tonumber),
+                        value: (.value | tonumber),
+                        volume: (.volume | tonumber),
+                        priceChangePct: (.priceChangePct | tonumber),
+                        tradesNumber: (.tradesNumber | tonumber),
+                        itemsNumber: (.itemsNumber | tonumber)
                       }
                     }) as $new_sector (
                       $existing.sectors;
