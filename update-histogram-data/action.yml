@@ -57,10 +57,6 @@ runs:
               if [ "${data_length}" -eq "0" ]; then
                 continue
               fi
-              
-              # DEBUG info
-              echo "Raw data from file for Energy sector:"
-              jq '.securities.data[] | select(.[2] == "sector" and .[6] == "Energy (Oil, Gas, Coal)") | {type: .[2], sector: .[3], name: .[6], value: .[15], marketCap: .[17]}' "${filename}"
         
               mkdir -p "${WORKDIR}/history"
               history_file="${WORKDIR}/history/$(basename ${filename})"
@@ -134,16 +130,29 @@ runs:
                 }' > "$history_file"
               else
                 # Debug info
-                echo "Debug - Before merge for date $current_date:"
-                echo "New sector data:"
-                echo "$current_data" | jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | {sectorName, value, marketCap}'
-                echo "Existing history data:"
-                jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | {sectorName, value: .value[-1], marketCap: .marketCap[-1]}' "$history_file"
-                echo "Full value array for Energy sector:"
-                jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | .value' "$history_file"
+                echo "DEBUG RAW DATA:"
+                jq '.securities.data[] | select(.[2] == "sector" and .[6] == "Energy (Oil, Gas, Coal)") | {
+                  type: .[2],
+                  name: .[6],
+                  value_raw: .[15],
+                  marketCap_raw: .[17]
+                }' "${filename}"
+                echo "DEBUG AFTER FIRST TRANSFORM:"
+                echo "$current_data" | jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | {
+                  name: .sectorName,
+                  value_transformed: .value,
+                  marketCap_transformed: .marketCap
+                }'
+                echo "DEBUG BEFORE MERGE:"
+                jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | {
+                  name: .sectorName,
+                  last_value: .value[-1],
+                  last_marketCap: .marketCap[-1],
+                  value_length: (.value | length),
+                  marketCap_length: (.marketCap | length)
+                }' "$history_file"
                 # Merge new data with existing data
-                jq --use-decimal-number \
-                --compact-output \
+                jq --compact-output \
                 --argjson new_data "$current_data" '
                 # First, check if the new date already exists
                 if (.dates | index($new_data.date)) then
