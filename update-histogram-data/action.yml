@@ -142,7 +142,9 @@ runs:
                 echo "Full value array for Energy sector:"
                 jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | .value' "$history_file"
                 # Merge new data with existing data
-                jq --compact-output --argjson new_data "$current_data" '
+                jq --use-decimal-number \
+                --compact-output \
+                --argjson new_data "$current_data" '
                 # First, check if the new date already exists
                 if (.dates | index($new_data.date)) then
                   # If date exists, do not modify the data
@@ -158,26 +160,25 @@ runs:
                     reduce ($new_data.sectors[] | {
                       sectorName: .sectorName,
                       data: {
-                        marketCap: (.marketCap | tonumber),
-                        value: (.value | tonumber),
-                        volume: (.volume | tonumber),
-                        priceChangePct: (.priceChangePct | tonumber),
-                        tradesNumber: (.tradesNumber | tonumber),
-                        itemsNumber: (.itemsNumber | tonumber)
+                        marketCap: (.marketCap | tonumber | tostring),
+                        value: (.value | tonumber | tostring),
+                        volume: (.volume | tonumber | tostring),
+                        priceChangePct: (.priceChangePct | tonumber | tostring),
+                        tradesNumber: (.tradesNumber | tonumber | tostring),
+                        itemsNumber: (.itemsNumber | tonumber | tostring)
                       }
                     }) as $new_sector (
                       $existing.sectors;
-                      
                       # Find existing sector or create new one
                       map(
                         if .sectorName == $new_sector.sectorName then
                           # Add new values only if date is new
-                          .marketCap += [$new_sector.data.marketCap] |
-                          .value += [$new_sector.data.value] |
-                          .volume += [$new_sector.data.volume] |
-                          .priceChangePct += [$new_sector.data.priceChangePct] |
-                          .tradesNumber += [$new_sector.data.tradesNumber] |
-                          .itemsNumber += [$new_sector.data.itemsNumber]
+                          .marketCap += [$new_sector.data.marketCap | tonumber] |
+                          .value += [$new_sector.data.value | tonumber] |
+                          .volume += [$new_sector.data.volume | tonumber] |
+                          .priceChangePct += [$new_sector.data.priceChangePct | tonumber] |
+                          .tradesNumber += [$new_sector.data.tradesNumber | tonumber] |
+                          .itemsNumber += [$new_sector.data.itemsNumber | tonumber]
                         else
                           .
                         end
