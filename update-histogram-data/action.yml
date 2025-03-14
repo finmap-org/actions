@@ -57,6 +57,10 @@ runs:
               if [ "${data_length}" -eq "0" ]; then
                 continue
               fi
+              
+              # DEBUG info
+              echo "Raw data from file for Energy sector:"
+              jq '.securities.data[] | select(.[2] == "sector" and .[6] == "Energy (Oil, Gas, Coal)") | {type: .[2], sector: .[3], name: .[6], value: .[15], marketCap: .[17]}' "${filename}"
         
               mkdir -p "${WORKDIR}/history"
               history_file="${WORKDIR}/history/$(basename ${filename})"
@@ -130,9 +134,11 @@ runs:
                 }' > "$history_file"
               else
                 # Debug info
-                echo "New date: $current_date"
-                echo "Current data date:" 
-                echo "$current_data" | jq '.date'
+                echo "Debug - Before merge for date $current_date:"
+                echo "New sector data:"
+                echo "$current_data" | jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | {sectorName, value, marketCap}'
+                echo "Existing history data:"
+                jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | {sectorName, value: .value[-1], marketCap: .marketCap[-1]}' "$history_file"
                 # Merge new data with existing data
                 jq --compact-output --argjson new_data "$current_data" '
                 # First, check if the new date already exists
