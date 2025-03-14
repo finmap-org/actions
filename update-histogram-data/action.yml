@@ -95,7 +95,8 @@ runs:
                   # Start with zero-filled sectors
                   $sectors as $zero_sectors |
                   # Get actual data
-                  [.securities.data[] | select(.[2] == "sector" and .[3] != "") | {
+                  # [.securities.data[] | select(.[2] == "sector" and .[3] != "") | {
+                  [.securities.data[] | select(.[2] == "sector") | {
                     sectorName: .[6],
                     marketCap: (.[17] // 0),
                     value: (.[15] // 0),
