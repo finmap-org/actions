@@ -95,8 +95,7 @@ runs:
                   # Start with zero-filled sectors
                   $sectors as $zero_sectors |
                   # Get actual data
-                  # [.securities.data[] | select(.[2] == "sector" and .[3] != "") | {
-                  [.securities.data[] | select(.[2] == "sector") | {
+                  [.securities.data[] | select(.[2] == "sector" and .[3] != "") | {
                     sectorName: .[6],
                     marketCap: (.[17] // 0),
                     value: (.[15] // 0),
@@ -130,6 +129,10 @@ runs:
                   ]
                 }' > "$history_file"
               else
+                # Debug info
+                echo "New date: $current_date"
+                echo "Current data date:" 
+                echo "$current_data" | jq '.date'
                 # Merge new data with existing data
                 jq --compact-output --argjson new_data "$current_data" '
                 # First, check if the new date already exists
