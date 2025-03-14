@@ -129,33 +129,8 @@ runs:
                   ]
                 }' > "$history_file"
               else
-                # Debug info
-                echo "DEBUG RAW DATA:"
-                jq '.securities.data[] | select(.[2] == "sector" and .[6] == "Energy (Oil, Gas, Coal)") | {
-                  type: .[2],
-                  name: .[6],
-                  value_raw: .[15],
-                  marketCap_raw: .[17]
-                }' "${filename}"
-                echo "DEBUG AFTER FIRST TRANSFORM:"
-                echo "$current_data" | jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | {
-                  name: .sectorName,
-                  value_transformed: .value,
-                  marketCap_transformed: .marketCap
-                }'
-                echo "DEBUG BEFORE MERGE:"
-                jq '.sectors[] | select(.sectorName == "Energy (Oil, Gas, Coal)") | {
-                  name: .sectorName,
-                  last_value: .value[-1],
-                  last_marketCap: .marketCap[-1],
-                  value_length: (.value | length),
-                  marketCap_length: (.marketCap | length)
-                }' "$history_file"
-                echo "DEBUG - Check for duplicates:"
-                jq '.securities.data[] | select(.[2] == "sector") | [.[3], .[6], .[15], .[17]]' "${filename}" | sort
                 # Merge new data with existing data
-                jq --compact-output \
-                --argjson new_data "$current_data" '
+                jq --compact-output --argjson new_data "$current_data" '
                 # First, check if the new date already exists
                 if (.dates | index($new_data.date)) then
                   # If date exists, do not modify the data
@@ -171,25 +146,26 @@ runs:
                     reduce ($new_data.sectors[] | {
                       sectorName: .sectorName,
                       data: {
-                        marketCap: (.marketCap | tonumber | tostring),
-                        value: (.value | tonumber | tostring),
-                        volume: (.volume | tonumber | tostring),
-                        priceChangePct: (.priceChangePct | tonumber | tostring),
-                        tradesNumber: (.tradesNumber | tonumber | tostring),
-                        itemsNumber: (.itemsNumber | tonumber | tostring)
+                        marketCap: .marketCap,
+                        value: .value,
+                        volume: .volume,
+                        priceChangePct: .priceChangePct,
+                        tradesNumber: .tradesNumber,
+                        itemsNumber: .itemsNumber
                       }
                     }) as $new_sector (
                       $existing.sectors;
+                      
                       # Find existing sector or create new one
                       map(
                         if .sectorName == $new_sector.sectorName then
                           # Add new values only if date is new
-                          .marketCap += [$new_sector.data.marketCap | tonumber] |
-                          .value += [$new_sector.data.value | tonumber] |
-                          .volume += [$new_sector.data.volume | tonumber] |
-                          .priceChangePct += [$new_sector.data.priceChangePct | tonumber] |
-                          .tradesNumber += [$new_sector.data.tradesNumber | tonumber] |
-                          .itemsNumber += [$new_sector.data.itemsNumber | tonumber]
+                          .marketCap += [$new_sector.data.marketCap] |
+                          .value += [$new_sector.data.value] |
+                          .volume += [$new_sector.data.volume] |
+                          .priceChangePct += [$new_sector.data.priceChangePct] |
+                          .tradesNumber += [$new_sector.data.tradesNumber] |
+                          .itemsNumber += [$new_sector.data.itemsNumber]
                         else
                           .
                         end
