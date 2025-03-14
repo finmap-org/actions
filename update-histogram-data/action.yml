@@ -151,6 +151,8 @@ runs:
                   value_length: (.value | length),
                   marketCap_length: (.marketCap | length)
                 }' "$history_file"
+                echo "DEBUG - Check for duplicates:"
+                jq '.securities.data[] | select(.[2] == "sector") | [.[3], .[6], .[15], .[17]]' "${filename}" | sort
                 # Merge new data with existing data
                 jq --compact-output \
                 --argjson new_data "$current_data" '
