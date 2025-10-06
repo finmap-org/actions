@@ -1,0 +1,135 @@
+name: Aggregate
+description: Composite Github Action
+
+inputs:
+  date:
+    required: true
+  repo:
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Read Inputs
+      run: |
+        DATE="${{ inputs.date }}"
+        REPO="${{ inputs.repo }}"
+        echo "DATE=$DATE" >> $GITHUB_ENV
+        echo "REPO=$REPO" >> $GITHUB_ENV
+        echo "DATA_DIR=${{ github.workspace }}/${REPO}/marketdata/${DATE}" >> $GITHUB_ENV
+
+    - name: Calculate sector aggregates
+      run: |
+        set -euo pipefail
+
+        function sector_sum() {
+          local data_dir="$1"
+          local exchange="$2"
+          local currency="$3"
+
+          jq --arg exchange "$exchange" \
+             --arg currency "$currency" \
+           'def current_total(g): g | map(.[17]) | add;
+            def prev_total(g): g | map(.[17] / (1 + (.[13] // 0) / 100)) | add;
+            def pct(g): if prev_total(g) == 0 then 0 else ((current_total(g) - prev_total(g)) / prev_total(g) * 100) end;
+            .securities.data += (.securities.data | group_by(.[3]) | map(
+              [
+                "",
+                "",
+                "sector",
+                $exchange,
+                "",
+                $currency,
+                .[0][3],
+                .[0][3],
+                "",
+                "",
+                "",
+                0,
+                0,
+                pct(.),
+                (map(.[14]) | add),
+                (map(.[15]) | add),
+                (map(.[16]) | add),
+                current_total(.),
+                "",
+                "",
+                "",
+                "",
+                length
+              ]
+            ))' "${data_dir}/raw/${exchange}.json" > "${data_dir}/${exchange}.json"
+        }
+
+        function market_totals() {
+          local TMP="$(mktemp)"
+          trap 'rm -f "$TMP"' EXIT
+
+          local data_dir="$1"
+          local exchange="$2"
+          local currency="$3"
+          
+          jq --arg exchange "$exchange" \
+             --arg currency "$currency" \
+            'def securities: .securities.data | map(select(.[2] != "sector"));
+             def total_current: securities | map(.[17]) | add;
+             def total_prev: securities | map(.[17] / (1 + (.[13] // 0) / 100)) | add;
+             def total_pct: if total_prev == 0 then 0 else ((total_current - total_prev) / total_prev * 100) end;
+             .securities.data += [
+               [
+                 "",
+                 "",
+                 "sector",
+                 "",
+                 "",
+                 $currency,
+                 $exchange,
+                 $exchange,
+                 "",
+                 "",
+                 "",
+                 0,
+                 0,
+                 total_pct,
+                 (securities | map(.[14]) | add),
+                 (securities | map(.[15]) | add),
+                 (securities | map(.[16]) | add),
+                 total_current,
+                 "",
+                 "",
+                 "",
+                 "",
+                 (securities | length)
+               ]
+             ]' "${data_dir}/${exchange}.json" > "$TMP" && mv "$TMP" "${data_dir}/${exchange}.json"
+        }
+
+        if [ "$REPO" -eq "data-us" ]; then
+          for file in $DATA_DIR/*.json; do
+            exchange=$(basename "$file" .json);
+            currency="USD"
+            sector_sum "${DATA_DIR}" "$exchange" "$currency"
+            market_totals "${DATA_DIR}" "$exchange" "$currency"
+          done
+        else
+          case "$REPO" in
+            "data-hongkong")
+              exchange="Hong Kong Exchange"
+              currency="HKD"
+              ;;
+            "data-lse")
+              exchange="London Stock Exchange"
+              currency="GBP"
+              ;;
+            "data-russia")
+              exchange="Moscow Exchange"
+              currency="RUB"
+              ;;
+            "data-turkey")
+              exchange="Borsa Istanbul"
+              currency="TRY"
+              ;;
+          esac
+          sector_sum "${DATA_DIR}" "$exchange" "$currency"
+          market_totals "${DATA_DIR}" "$exchange" "$currency"
+        fi
