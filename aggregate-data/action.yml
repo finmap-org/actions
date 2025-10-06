@@ -24,6 +24,9 @@ runs:
       run: |
         set -euo pipefail
 
+        TMP="$(mktemp)"
+        trap 'rm -f "$TMP"' EXIT
+
         function sector_sum() {
           local exchange="$1"
           local currency="$2"
@@ -63,9 +66,6 @@ runs:
         }
 
         function market_totals() {
-          local TMP="$(mktemp)"
-          trap 'rm -f "$TMP"' EXIT
-
           local exchange="$1"
           local currency="$2"
           
