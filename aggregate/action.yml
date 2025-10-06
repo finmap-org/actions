@@ -16,16 +16,16 @@ runs:
         REPO="${{ inputs.repo }}"
         echo "DATE=$DATE" >> $GITHUB_ENV
         echo "REPO=$REPO" >> $GITHUB_ENV
-        echo "DATA_DIR=${{ github.workspace }}/${REPO}/marketdata/${DATE}" >> $GITHUB_ENV
+        echo "INPUT_DATA_DIR=${{ github.workspace }}/marketdata/${DATE}/raw" >> $GITHUB_ENV
+        echo "OUTPUT_DATA_DIR=${{ github.workspace }}/${REPO}/marketdata/${DATE}" >> $GITHUB_ENV
 
     - name: Calculate sector aggregates
       run: |
         set -euo pipefail
 
         function sector_sum() {
-          local data_dir="$1"
-          local exchange="$2"
-          local currency="$3"
+          local exchange="$1"
+          local currency="$2"
 
           jq --arg exchange "$exchange" \
              --arg currency "$currency" \
@@ -58,16 +58,15 @@ runs:
                 "",
                 length
               ]
-            ))' "${data_dir}/raw/${exchange}.json" > "${data_dir}/${exchange}.json"
+            ))' "${INPUT_DATA_DIR}/${exchange}.json" > "${OUTPUT_DATA_DIR}/${exchange}.json"
         }
 
         function market_totals() {
           local TMP="$(mktemp)"
           trap 'rm -f "$TMP"' EXIT
 
-          local data_dir="$1"
-          local exchange="$2"
-          local currency="$3"
+          local exchange="$1"
+          local currency="$2"
           
           jq --arg exchange "$exchange" \
              --arg currency "$currency" \
@@ -101,15 +100,15 @@ runs:
                  "",
                  (securities | length)
                ]
-             ]' "${data_dir}/${exchange}.json" > "$TMP" && mv "$TMP" "${data_dir}/${exchange}.json"
+             ]' "${INPUT_DATA_DIR}/${exchange}.json" > "$TMP" && mv "$TMP" "${OUTPUT_DATA_DIR}/${exchange}.json"
         }
 
         if [ "$REPO" -eq "data-us" ]; then
-          for file in $DATA_DIR/*.json; do
+          for file in $INPUT_DATA_DIR/*.json; do
             exchange=$(basename "$file" .json);
             currency="USD"
-            sector_sum "${DATA_DIR}" "$exchange" "$currency"
-            market_totals "${DATA_DIR}" "$exchange" "$currency"
+            sector_sum "$exchange" "$currency"
+            market_totals "$exchange" "$currency"
           done
         else
           case "$REPO" in
@@ -130,6 +129,6 @@ runs:
               currency="TRY"
               ;;
           esac
-          sector_sum "${DATA_DIR}" "$exchange" "$currency"
-          market_totals "${DATA_DIR}" "$exchange" "$currency"
+          sector_sum "$exchange" "$currency"
+          market_totals "$exchange" "$currency"
         fi
