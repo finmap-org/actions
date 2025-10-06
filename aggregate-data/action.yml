@@ -11,6 +11,7 @@ runs:
   using: "composite"
   steps:
     - name: Read Inputs
+      shell: bash
       run: |
         DATE="${{ inputs.date }}"
         REPO="${{ inputs.repo }}"
@@ -20,6 +21,7 @@ runs:
         echo "OUTPUT_DATA_DIR=${{ github.workspace }}/${REPO}/marketdata/${DATE}" >> $GITHUB_ENV
 
     - name: Calculate sector aggregates
+      shell: bash
       run: |
         set -euo pipefail
 
