@@ -102,7 +102,7 @@ runs:
                  "",
                  (securities | length)
                ]
-             ]' "${INPUT_DATA_DIR}/${exchange}.json" > "$TMP" && mv "$TMP" "${OUTPUT_DATA_DIR}/${exchange}.json"
+             ]' "${OUTPUT_DATA_DIR}/${exchange}.json" > "$TMP" && mv "$TMP" "${OUTPUT_DATA_DIR}/${exchange}.json"
         }
 
         if [ "$REPO" = "data-us" ]; then
