@@ -17,8 +17,7 @@ runs:
         REPO="${{ inputs.repo }}"
         echo "DATE=$DATE" >> $GITHUB_ENV
         echo "REPO=$REPO" >> $GITHUB_ENV
-        echo "INPUT_DATA_DIR=${{ github.workspace }}/marketdata/${DATE}/raw" >> $GITHUB_ENV
-        echo "OUTPUT_DATA_DIR=${{ github.workspace }}/${REPO}/marketdata/${DATE}" >> $GITHUB_ENV
+        echo "DATA_DIR=${{ github.workspace }}/${REPO}/marketdata/${DATE}" >> $GITHUB_ENV
 
     - name: Calculate sector aggregates
       shell: bash
@@ -60,7 +59,7 @@ runs:
                 "",
                 length
               ]
-            ))' "${INPUT_DATA_DIR}/${exchange}.json" > "${OUTPUT_DATA_DIR}/${exchange}.json"
+            ))' "${DATA_DIR}/${exchange}.json" > "${DATA_DIR}/${exchange}.json"
         }
 
         function market_totals() {
@@ -102,11 +101,11 @@ runs:
                  "",
                  (securities | length)
                ]
-             ]' "${OUTPUT_DATA_DIR}/${exchange}.json" > "$TMP" && mv "$TMP" "${OUTPUT_DATA_DIR}/${exchange}.json"
+             ]' "${DATA_DIR}/${exchange}.json" > "$TMP" && mv "$TMP" "${DATA_DIR}/${exchange}.json"
         }
 
         if [ "$REPO" = "data-us" ]; then
-          for file in $INPUT_DATA_DIR/*.json; do
+          for file in $DATA_DIR/*.json; do
             exchange=$(basename "$file" .json);
             currency="USD"
             sector_sum "$exchange" "$currency"
