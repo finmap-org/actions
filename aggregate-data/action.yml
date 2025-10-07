@@ -62,7 +62,7 @@ runs:
                 "",
                 length
               ]
-            ))' "${DATA_DIR}/${exchange}.json" > "${DATA_DIR}/${exchange}.json"
+            ))' "${DATA_DIR}/${exchange}.json" > "$TMP" && mv "$TMP" "${DATA_DIR}/${exchange}.json"
         }
 
         function market_totals() {
