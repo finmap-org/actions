@@ -152,6 +152,8 @@ runs:
         start_seconds=$(date -d "$START_DATE" +%s)
         end_seconds=$(date -d "$END_DATE" +%s)
         
+        max_jobs=10
+
         # Loop through the date range
         current_seconds=$start_seconds
         while [ $current_seconds -le $end_seconds ]; do
@@ -164,5 +166,12 @@ runs:
             continue
           fi
 
-          aggregate "$current_date"
+          aggregate "$current_date" &
+
+          while (( $(jobs -r | wc -l) >= max_jobs )); do
+            wait -n  # Wait for any one job to finish if max concurrent jobs reached
+          done
         done
+
+        # Wait for all background jobs to finish
+        wait
