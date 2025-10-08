@@ -155,7 +155,7 @@ runs:
         # Loop through the date range
         current_seconds=$start_seconds
         while [ $current_seconds -le $end_seconds ]; do
-          current_date=$(date -d "@$current_seconds" +"%Y-%m-%d")
+          current_date=$(date -d "@$current_seconds" +"%Y/%m/%d")
           # Increment the current date by one day (86400 seconds)
           current_seconds=$((current_seconds + 86400))
         
