@@ -31,6 +31,11 @@ runs:
       run: |
         set -euo pipefail
 
+        # Enable nullglob so that if no *.json files exist in "$data_dir/${exchange}.json",
+        # the glob expands to an empty list and the loop is skipped instead of
+        # processing the literal pattern string
+        shopt -s nullglob
+
         function sector_sum() {
           local data_dir="$1"
           local exchange="$2"
