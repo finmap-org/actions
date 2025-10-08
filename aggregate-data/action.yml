@@ -31,13 +31,12 @@ runs:
       run: |
         set -euo pipefail
 
-        TMP="$(mktemp)"
-        trap 'rm -f "$TMP"' EXIT
-
         function sector_sum() {
           local data_dir="$1"
           local exchange="$2"
           local currency="$3"
+
+          local TMP="$(mktemp)"
 
           jq --arg exchange "$exchange" \
              --arg currency "$currency" \
@@ -71,12 +70,16 @@ runs:
                 length
               ]
             ))' "${data_dir}/${exchange}.json" > "$TMP" && mv "$TMP" "${data_dir}/${exchange}.json"
+
+          rm -rf $TMP
         }
 
         function market_totals() {
           local data_dir="$1"
           local exchange="$2"
           local currency="$3"
+
+          local TMP="$(mktemp)"
           
           jq --arg exchange "$exchange" \
              --arg currency "$currency" \
@@ -111,6 +114,8 @@ runs:
                  (securities | length)
                ]
              ]' "${data_dir}/${exchange}.json" > "$TMP" && mv "$TMP" "${data_dir}/${exchange}.json"
+
+          rm -rf $TMP
         }
 
         function aggregate() {
