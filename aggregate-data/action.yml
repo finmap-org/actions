@@ -2,9 +2,13 @@ name: Aggregate
 description: Composite Github Action
 
 inputs:
-  date:
-    required: true
   repo:
+    required: true
+  start_date:
+    description: 'Start date, YYYY/MM/DD'
+    required: true
+  end_date:
+    description: 'End date, YYYY/MM/DD'
     required: true
 
 runs:
@@ -13,11 +17,14 @@ runs:
     - name: Read Inputs
       shell: bash
       run: |
-        DATE="${{ inputs.date }}"
+        # Convert input dates into YYYY/MM/DD
+        START_DATE=$(date -d "${{ inputs.start_date }}" +%Y/%m/%d)
+        END_DATE=$(date -d "${{ inputs.end_date }}" +%Y/%m/%d)
+        echo "START_DATE=$START_DATE" >> $GITHUB_ENV
+        echo "END_DATE=$END_DATE" >> $GITHUB_ENV
+
         REPO="${{ inputs.repo }}"
-        echo "DATE=$DATE" >> $GITHUB_ENV
         echo "REPO=$REPO" >> $GITHUB_ENV
-        echo "DATA_DIR=${{ github.workspace }}/${REPO}/marketdata/${DATE}" >> $GITHUB_ENV
 
     - name: Calculate sector aggregates
       shell: bash
@@ -28,8 +35,9 @@ runs:
         trap 'rm -f "$TMP"' EXIT
 
         function sector_sum() {
-          local exchange="$1"
-          local currency="$2"
+          local data_dir="$1"
+          local exchange="$2"
+          local currency="$3"
 
           jq --arg exchange "$exchange" \
              --arg currency "$currency" \
@@ -62,12 +70,13 @@ runs:
                 "",
                 length
               ]
-            ))' "${DATA_DIR}/${exchange}.json" > "$TMP" && mv "$TMP" "${DATA_DIR}/${exchange}.json"
+            ))' "${data_dir}/${exchange}.json" > "$TMP" && mv "$TMP" "${data_dir}/${exchange}.json"
         }
 
         function market_totals() {
-          local exchange="$1"
-          local currency="$2"
+          local data_dir="$1"
+          local exchange="$2"
+          local currency="$3"
           
           jq --arg exchange "$exchange" \
              --arg currency "$currency" \
@@ -101,35 +110,59 @@ runs:
                  "",
                  (securities | length)
                ]
-             ]' "${DATA_DIR}/${exchange}.json" > "$TMP" && mv "$TMP" "${DATA_DIR}/${exchange}.json"
+             ]' "${data_dir}/${exchange}.json" > "$TMP" && mv "$TMP" "${data_dir}/${exchange}.json"
         }
 
-        if [ "$REPO" = "data-us" ]; then
-          for file in $DATA_DIR/*.json; do
-            exchange=$(basename "$file" .json);
-            currency="USD"
-            sector_sum "$exchange" "$currency"
-            market_totals "$exchange" "$currency"
-          done
-        else
-          case "$REPO" in
-            "data-hongkong")
-              exchange="Hong Kong Exchange"
-              currency="HKD"
-              ;;
-            "data-lse")
-              exchange="London Stock Exchange"
-              currency="GBP"
-              ;;
-            "data-russia")
-              exchange="Moscow Exchange"
-              currency="RUB"
-              ;;
-            "data-turkey")
-              exchange="Borsa Istanbul"
-              currency="TRY"
-              ;;
-          esac
-          sector_sum "$exchange" "$currency"
-          market_totals "$exchange" "$currency"
-        fi
+        function aggregate() {
+          local current_date="$1"
+          local data_dir="${{ github.workspace }}/${REPO}/marketdata/${current_date}"
+
+          if [ "$REPO" = "data-us" ]; then
+            for file in $data_dir/*.json; do
+              exchange=$(basename "$file" .json);
+              currency="USD"
+              sector_sum "$data_dir" "$exchange" "$currency"
+              market_totals "$data_dir" "$exchange" "$currency"
+            done
+          else
+            case "$REPO" in
+              "data-hongkong")
+                exchange="Hong Kong Exchange"
+                currency="HKD"
+                ;;
+              "data-lse")
+                exchange="London Stock Exchange"
+                currency="GBP"
+                ;;
+              "data-russia")
+                exchange="Moscow Exchange"
+                currency="RUB"
+                ;;
+              "data-turkey")
+                exchange="Borsa Istanbul"
+                currency="TRY"
+                ;;
+            esac
+            sector_sum "$data_dir" "$exchange" "$currency"
+            market_totals "$data_dir" "$exchange" "$currency"
+          fi
+        }
+
+        # Convert dates to seconds since epoch for comparison
+        start_seconds=$(date -d "$START_DATE" +%s)
+        end_seconds=$(date -d "$END_DATE" +%s)
+        
+        # Loop through the date range
+        current_seconds=$start_seconds
+        while [ $current_seconds -le $end_seconds ]; do
+          current_date=$(date -d "@$current_seconds" +"%Y-%m-%d")
+          # Increment the current date by one day (86400 seconds)
+          current_seconds=$((current_seconds + 86400))
+        
+          # Skip weekends
+          if [ $(date -d "$current_date" +%u) -ge 6 ]; then
+            continue
+          fi
+
+          aggregate "$current_date"
+        done
