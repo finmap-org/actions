@@ -31,13 +31,13 @@ runs:
       run: |
         set -euo pipefail
 
-        # Enable nullglob so that if no *.json files exist in "$data_dir/${exchange}.json",
+        # Enable nullglob so that if no *.json files exist in "$data_dir/*.json",
         # the glob expands to an empty list and the loop is skipped instead of
         # processing the literal pattern string
         shopt -s nullglob
 
         function sector_sum() {
-          local data_dir="$1"
+          local json="$1"
           local exchange="$2"
           local currency="$3"
 
@@ -74,13 +74,13 @@ runs:
                 "",
                 length
               ]
-            ))' "${data_dir}/${exchange}.json" > "$TMP" && mv "$TMP" "${data_dir}/${exchange}.json"
+            ))' "$json" > "$TMP" && mv "$TMP" "$json"
 
           rm -rf $TMP
         }
 
         function market_totals() {
-          local data_dir="$1"
+          local json="$1"
           local exchange="$2"
           local currency="$3"
 
@@ -118,7 +118,7 @@ runs:
                  "",
                  (securities | length)
                ]
-             ]' "${data_dir}/${exchange}.json" > "$TMP" && mv "$TMP" "${data_dir}/${exchange}.json"
+             ]' "$json" > "$TMP" && mv "$TMP" "$json"
 
           rm -rf $TMP
         }
@@ -127,35 +127,12 @@ runs:
           local current_date="$1"
           local data_dir="${{ github.workspace }}/${REPO}/marketdata/${current_date}"
 
-          if [ "$REPO" = "data-us" ]; then
-            for file in $data_dir/*.json; do
-              exchange=$(basename "$file" .json);
-              currency="USD"
-              sector_sum "$data_dir" "$exchange" "$currency"
-              market_totals "$data_dir" "$exchange" "$currency"
-            done
-          else
-            case "$REPO" in
-              "data-hongkong")
-                exchange="Hong Kong Exchange"
-                currency="HKD"
-                ;;
-              "data-lse")
-                exchange="London Stock Exchange"
-                currency="GBP"
-                ;;
-              "data-russia")
-                exchange="Moscow Exchange"
-                currency="RUB"
-                ;;
-              "data-turkey")
-                exchange="Borsa Istanbul"
-                currency="TRY"
-                ;;
-            esac
-            sector_sum "$data_dir" "$exchange" "$currency"
-            market_totals "$data_dir" "$exchange" "$currency"
-          fi
+          for json in $data_dir/*.json; do
+            exchange=$(jq -r '.securities.data[] | select( .[2] == "sector" and .[3] == "") | .[6]' "$json")
+            currency=$(jq -r '.securities.data[] | select( .[2] == "sector" and .[3] == "") | .[5]' "$json")
+            sector_sum "$json" "$exchange" "$currency"
+            market_totals "$json" "$exchange" "$currency"
+          done
         }
 
         # Convert dates to seconds since epoch for comparison
