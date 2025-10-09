@@ -128,8 +128,8 @@ runs:
           local data_dir="${{ github.workspace }}/${REPO}/marketdata/${current_date}"
 
           for json in $data_dir/*.json; do
-            exchange=$(jq -r '.securities.data[] | select( .[2] == "sector" and .[3] == "") | .[6]' "$json")
-            currency=$(jq -r '.securities.data[] | select( .[2] == "sector" and .[3] == "") | .[5]' "$json")
+            exchange=$(jq -r '.securities.data[0] | .[0]' "$json")
+            currency=$(jq -r '.securities.data[0] | .[5]' "$json")
             sector_sum "$json" "$exchange" "$currency"
             market_totals "$json" "$exchange" "$currency"
           done
