@@ -1,30 +1,35 @@
 name: Update Histogram Datafiles
-description: Composite Github Action
+description: Composite GitHub Action
 
 inputs:
   repo:
+    description: "Repository path relative to workspace"
     required: true
   start_date:
-    description: Start date, YYYY/MM/DD
+    description: "Start date, YYYY/MM/DD"
     required: true
   end_date:
-    description: End date, YYYY/MM/DD
+    description: "End date, YYYY/MM/DD"
     required: true
+  max_jobs:
+    description: "Maximum concurrent date workers"
+    required: false
+    default: "10"
 
 runs:
   using: composite
   steps:
-    - name: Read Inputs
+    - name: Read inputs
       shell: bash
       run: |
-        # Convert input dates into YYYY/MM/DD
+        REPO="${{ inputs.repo }}"
         START_DATE=$(date -d "${{ inputs.start_date }}" +%Y/%m/%d)
         END_DATE=$(date -d "${{ inputs.end_date }}" +%Y/%m/%d)
-        echo "START_DATE=$START_DATE" >> $GITHUB_ENV
-        echo "END_DATE=$END_DATE" >> $GITHUB_ENV
-
-        REPO="${{ inputs.repo }}"
-        echo "REPO=$REPO" >> $GITHUB_ENV
+        MAX_JOBS="${{ inputs.max_jobs }}"
+        echo "REPO=$REPO" >> "$GITHUB_ENV"
+        echo "START_DATE=$START_DATE" >> "$GITHUB_ENV"
+        echo "END_DATE=$END_DATE" >> "$GITHUB_ENV"
+        echo "MAX_JOBS=${MAX_JOBS:-10}" >> "$GITHUB_ENV"
 
     - name: Update Histogram Datafiles
       shell: bash
@@ -36,93 +41,91 @@ runs:
         # processing the literal pattern string
         shopt -s nullglob
 
-        function update_datafile() {
-          local -n current_data=$1 # Use nameref to refer to the passed array name
-          local date="$2"
-          local data_dir="${{ github.workspace }}/${REPO}/marketdata/${date}"
-          date=$(date -d "$date" +%Y-%m-%d)
+        REPO="${REPO:?}"
+        START_DATE="${START_DATE:?}"
+        END_DATE="${END_DATE:?}"
+        MAX_JOBS="${MAX_JOBS:-10}"
+        WORKSPACE="${{ github.workspace }}"
+        MARKETDATA_ROOT="$WORKSPACE/$REPO/marketdata"
+        HISTORY_DIR="$WORKSPACE/$REPO/history"
+        mkdir -p "$HISTORY_DIR"
 
-          for file in $data_dir/*.json; do
-            local exchange=$(basename "$file" .json)
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
 
-            local length=$(jq '(.securities.data // []) | length' "$file")
-            if [ $length -eq 0 ]; then
-              continue
-            fi
+        start_seconds=$(date -d "$START_DATE" +%s)
+        end_seconds=$(date -d "$END_DATE" +%s)
+        current_seconds=$start_seconds
 
-            local is_date_present=$( jq --arg date "$date" '.dates? | index($date) != null' <<< "${current_data[$exchange]}" )
-            
-            if [ $is_date_present ]; then
-              continue # Skip existing dates
-            fi
-
-            current_data[$exchange]=$(jq --arg date "$date" '(.dates // []) += [$date]' <<< "${current_data[$exchange]}")
-
-            local sector_list=$(jq -r '.securities.data[] | select( .[2] == "sector")' "$file")
-            for sector in $sector_list; do
-              local sectorName=$(echo $sector | jq -r 'if .[3] != "" then .[7] else "Market Totals" end')
-              local volume=$(echo $sector | jq -r .[14])
-              local value=$(echo $sector | jq -r .[15])
-              local tradesNumber=$(echo $sector | jq -r .[16])
-              local marketCap=$(echo $sector | jq -r .[17])
-              local itemsNumber=$(echo $sector | jq -r .[23])
-
-              current_data[$exchange]=$(jq --arg sectorName "$sectorName" \
-                --argjson volume "$volume" \
-                --argjson value "$value" \
-                --argjson tradesNumber "$tradesNumber" \
-                --argjson marketCap "$marketCap" \
-                --argjson itemsNumber "$itemsNumber" \
-                --compact-output '.[$sectorName] |= (
-                  {
-                    volume: (.volume // []) + [$volume],
-                    value: (.value // []) + [$value],
-                    tradesNumber: (.tradesNumber // []) + [$tradesNumber],
-                    marketCap: (.marketCap // []) + [$marketCap],
-                    itemsNumber: (.itemsNumber // []) + [$itemsNumber]
-                  }
-                )' <<< "${current_data[$exchange]}")
-            done
+        process_date() {
+          date_slash="$1"
+          iso=$(date -d "$date_slash" +%Y-%m-%d)
+          outdir="$TMPDIR/$iso"
+          mkdir -p "$outdir"
+          data_dir="$MARKETDATA_ROOT/$date_slash"
+          [[ -d "$data_dir" ]] || return 0
+          for file in "$data_dir"/*.json; do
+            [[ -f "$file" ]] || continue
+            exchange=$(basename "$file" .json)
+            jq -c --arg d "$iso" '
+              {
+                dates: [$d]
+              } + (reduce (.securities.data[]? | select(.[2]=="sector")) as $s ({}; . + { (if $s[3] != "" then $s[7] else "Market Totals" end): {
+                volume: [($s[14] // 0)],
+                value: [($s[15] // 0)],
+                tradesNumber: [($s[16] // 0)],
+                marketCap: [($s[17] // 0)],
+                itemsNumber: [($s[23] // 0)]
+              }}))
+            ' "$file" > "$outdir/$exchange.json"
           done
         }
 
-        declare -A data
-        histogram_data_dir="${{ github.workspace }}/${REPO}/history"
-        mkdir -p "$histogram_data_dir"
-        for file in $histogram_data_dir/*.json; do
-          exchange=$(basename "$file" .json)
-          data["$exchange"]=$(jq '.' "$file")
-        done
+        export -f process_date
 
-        # Limit the number of concurrent jobs
-        max_jobs=10
-
-        # Convert dates to seconds since epoch for comparison
-        start_seconds=$(date -d "$START_DATE" +%s)
-        end_seconds=$(date -d "$END_DATE" +%s)
-
-        # Loop through the date range
-        current_seconds=$start_seconds
         while [ $current_seconds -le $end_seconds ]; do
           current_date=$(date -d "@$current_seconds" +"%Y/%m/%d")
-          # Increment the current date by one day (86400 seconds)
           current_seconds=$((current_seconds + 86400))
-        
-          # Skip weekends
-          if [ $(date -d "$current_date" +%u) -ge 6 ]; then
+          dow=$(date -d "$current_date" +%u)
+          if [ "$dow" -ge 6 ]; then
             continue
           fi
-
-          update_datafile data "$current_date" &
-
-          while (( $(jobs -r | wc -l) >= max_jobs )); do
-            wait -n  # Wait for any one job to finish if max concurrent jobs reached
+          process_date "$current_date" &
+          while [ "$(jobs -rp | wc -l)" -ge "$MAX_JOBS" ]; do
+            wait -n
           done
         done
 
-        # Wait for all background jobs to finish
         wait
 
-        for exchange in "${!data[@]}"; do
-          echo "${data[$exchange]}" > "${histogram_data_dir}/${exchange}.json"
+        find "$TMPDIR" -mindepth 2 -maxdepth 2 -type f -name '*.json' -printf '%f\n' | sed 's/\.json$//' | sort -u | while read -r exchange; do
+          files=()
+          if [ -f "$HISTORY_DIR/$exchange.json" ]; then
+            files+=("$HISTORY_DIR/$exchange.json")
+          fi
+          for f in "$TMPDIR"/*/"$exchange".json; do
+            [[ -f "$f" ]] || continue
+            files+=("$f")
+          done
+          if [ ${#files[@]} -eq 0 ]; then
+            continue
+          fi
+          tmp=$(mktemp)
+          jq -s '
+            reduce .[] as $item (
+              {};
+              .dates = ((.dates // []) + ($item.dates // [])) | unique | sort
+              | ($item | keys_unsorted[] | select(. != "dates")) as $k
+              | .[$k] = {
+                  volume: ((.[$k].volume // []) + ($item[$k].volume // [])),
+                  value: ((.[$k].value // []) + ($item[$k].value // [])),
+                  tradesNumber: ((.[$k].tradesNumber // []) + ($item[$k].tradesNumber // [])),
+                  marketCap: ((.[$k].marketCap // []) + ($item[$k].marketCap // [])),
+                  itemsNumber: ((.[$k].itemsNumber // []) + ($item[$k].itemsNumber // []))
+                }
+            )
+          ' "${files[@]}" > "$tmp"
+          mv "$tmp" "$HISTORY_DIR/$exchange.json"
         done
+
+        exit 0
