@@ -1,0 +1,123 @@
+name: 'Update Histogram Datafiles'
+description: 'Composite Github Action'
+
+inputs:
+  repo:
+    required: true
+  start_date:
+    description: 'Start date, YYYY/MM/DD'
+    required: true
+  end_date:
+    description: 'End date, YYYY/MM/DD'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Read Inputs
+      shell: bash
+      run: |
+        # Convert input dates into YYYY/MM/DD
+        START_DATE=$(date -d "${{ inputs.start_date }}" +%Y/%m/%d)
+        END_DATE=$(date -d "${{ inputs.end_date }}" +%Y/%m/%d)
+        echo "START_DATE=$START_DATE" >> $GITHUB_ENV
+        echo "END_DATE=$END_DATE" >> $GITHUB_ENV
+
+        REPO="${{ inputs.repo }}"
+        echo "REPO=$REPO" >> $GITHUB_ENV
+
+    - name: Update Histogram Datafiles
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Enable nullglob so that if no *.json files exist in "$data_dir/${exchange}.json",
+        # the glob expands to an empty list and the loop is skipped instead of
+        # processing the literal pattern string
+        shopt -s nullglob
+
+        function update_datafile() {
+          local current_date="$1"
+          local data_dir="${{ github.workspace }}/${REPO}/marketdata/${current_date}"
+          current_date=$(date -d "$current_date" +%Y-%m-%d)
+
+          for file in $data_dir/*.json; do
+            local length=$(jq '.securities.data | length' "$file")
+            if [ $length -eq 0 ]; then
+              continue
+            fi
+
+            filename=$(basename "$file")
+            local datafile="${{ github.workspace }}/${REPO}/history/${filename}"
+
+            if [ -f "$datafile" ]; then
+              local data=$( jq . "$datafile" )
+
+              local is_date_present=$( jq --arg current_date "$current_date" '.dates | index($current_date) != null' <<< "$data" )
+              
+              if [ $is_date_present ]; then
+                continue # Skip existing dates
+              fi
+              
+              data=$(jq --arg current_date "$current_date" '.dates += [$current_date]' <<< "$data")
+            else
+              local data=$(jq -n --arg current_date "$current_date" '{dates: [$current_date]}')
+            fi
+
+            local sector_list=$(jq -r '.securities.data[] | select( .[2] == "sector")' "$file")
+            for sector in sectors; do
+              local sectorName=$(echo $sector | jq -r 'if .[3] != "" then .[7] else "Market Totals" end')
+              local volume=$(echo $sector | jq -r .[14])
+              local value=$(echo $sector | jq -r .[15])
+              local tradesNumber=$(echo $sector | jq -r .[16])
+              local marketCap=$(echo $sector | jq -r .[17])
+              local itemsNumber=$(echo $sector | jq -r .[23])
+
+              data=$(jq --arg sectorName "$sectorName" \
+                --arg volume "$volume" \
+                --arg value "$value" \
+                --arg tradesNumber "$tradesNumber" \
+                --arg marketCap "$marketCap" \
+                --arg itemsNumber "$itemsNumber" \
+                --compact-output '.[$sectorName] |= (
+                  (. // []) + [
+                    {
+                      volume: $volume,
+                      value: $value,
+                      tradesNumber: $tradesNumber,
+                      marketCap: $marketCap,
+                      itemsNumber: $itemsNumber
+                    }
+                  ]
+                )' <<< "$data")
+            done
+          done
+        }
+
+        # Convert dates to seconds since epoch for comparison
+        start_seconds=$(date -d "$START_DATE" +%s)
+        end_seconds=$(date -d "$END_DATE" +%s)
+        
+        max_jobs=10
+
+        # Loop through the date range
+        current_seconds=$start_seconds
+        while [ $current_seconds -le $end_seconds ]; do
+          current_date=$(date -d "@$current_seconds" +"%Y/%m/%d")
+          # Increment the current date by one day (86400 seconds)
+          current_seconds=$((current_seconds + 86400))
+        
+          # Skip weekends
+          if [ $(date -d "$current_date" +%u) -ge 6 ]; then
+            continue
+          fi
+
+          update_datafile "$current_date" &
+
+          while (( $(jobs -r | wc -l) >= max_jobs )); do
+            wait -n  # Wait for any one job to finish if max concurrent jobs reached
+          done
+        done
+
+        # Wait for all background jobs to finish
+        wait
