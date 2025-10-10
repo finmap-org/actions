@@ -6,10 +6,10 @@ inputs:
     description: "Repository path relative to workspace"
     required: true
   start_date:
-    description: "Start date, YYYY/MM/DD"
+    description: "Start date in YYYY/MM/DD format"
     required: true
   end_date:
-    description: "End date, YYYY/MM/DD"
+    description: "End date in YYYY/MM/DD format"
     required: true
   max_jobs:
     description: "Maximum concurrent date workers"
@@ -19,32 +19,17 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Read inputs
-      shell: bash
-      run: |
-        REPO="${{ inputs.repo }}"
-        START_DATE=$(date -d "${{ inputs.start_date }}" +%Y/%m/%d)
-        END_DATE=$(date -d "${{ inputs.end_date }}" +%Y/%m/%d)
-        MAX_JOBS="${{ inputs.max_jobs }}"
-        echo "REPO=$REPO" >> "$GITHUB_ENV"
-        echo "START_DATE=$START_DATE" >> "$GITHUB_ENV"
-        echo "END_DATE=$END_DATE" >> "$GITHUB_ENV"
-        echo "MAX_JOBS=${MAX_JOBS:-10}" >> "$GITHUB_ENV"
-
     - name: Update Histogram Datafiles
       shell: bash
+      env:
+        REPO: ${{ inputs.repo }}
+        START_DATE: ${{ inputs.start_date }}
+        END_DATE: ${{ inputs.end_date }}
+        MAX_JOBS: ${{ inputs.max_jobs }}
       run: |
         set -euo pipefail
-
-        # Enable nullglob so that if no *.json files exist in "$data_dir/*.json",
-        # the glob expands to an empty list and the loop is skipped instead of
-        # processing the literal pattern string
         shopt -s nullglob
 
-        REPO="${REPO:?}"
-        START_DATE="${START_DATE:?}"
-        END_DATE="${END_DATE:?}"
-        MAX_JOBS="${MAX_JOBS:-10}"
         WORKSPACE="${{ github.workspace }}"
         MARKETDATA_ROOT="$WORKSPACE/$REPO/marketdata"
         HISTORY_DIR="$WORKSPACE/$REPO/history"
@@ -55,19 +40,20 @@ runs:
 
         start_seconds=$(date -d "$START_DATE" +%s)
         end_seconds=$(date -d "$END_DATE" +%s)
-        current_seconds=$start_seconds
 
         process_date() {
-          date_slash="$1"
-          iso=$(date -d "$date_slash" +%Y-%m-%d)
-          outdir="$TMPDIR/$iso"
-          mkdir -p "$outdir"
-          data_dir="$MARKETDATA_ROOT/$date_slash"
+          local date_slash="$1"
+          local date_iso="${date_slash//\//-}"
+          local data_dir="$MARKETDATA_ROOT/$date_slash"
+          
           [[ -d "$data_dir" ]] || return 0
+          
           for file in "$data_dir"/*.json; do
             [[ -f "$file" ]] || continue
-            exchange=$(basename "$file" .json)
-            jq -c --arg d "$iso" '
+            local exchange=$(basename "$file" .json)
+            local outfile="$TMPDIR/${exchange}__${date_iso}.json"
+            
+            jq -c --arg d "$date_iso" '
               {
                 dates: [$d]
               } + (reduce (.securities.data[]? | select(.[2]=="sector")) as $s ({}; . + { (if $s[3] != "" then $s[7] else "Market Totals" end): {
@@ -77,55 +63,65 @@ runs:
                 marketCap: [($s[17] // 0)],
                 itemsNumber: [($s[23] // 0)]
               }}))
-            ' "$file" > "$outdir/$exchange.json"
+            ' "$file" > "$outfile"
           done
         }
 
         export -f process_date
+        export MARKETDATA_ROOT TMPDIR
 
+        date_list=()
+        current_seconds=$start_seconds
         while [ $current_seconds -le $end_seconds ]; do
-          current_date=$(date -d "@$current_seconds" +"%Y/%m/%d")
-          current_seconds=$((current_seconds + 86400))
-          dow=$(date -d "$current_date" +%u)
-          if [ "$dow" -ge 6 ]; then
-            continue
+          dow=$(date -d "@$current_seconds" +%u)
+          if [ "$dow" -lt 6 ]; then
+            date_list+=("$(date -d "@$current_seconds" +%Y/%m/%d)")
           fi
-          process_date "$current_date" &
-          while [ "$(jobs -rp | wc -l)" -ge "$MAX_JOBS" ]; do
-            wait -n
-          done
+          current_seconds=$((current_seconds + 86400))
         done
+
+        printf '%s\n' "${date_list[@]}" | xargs -P "$MAX_JOBS" -I {} bash -c 'process_date "$@"' _ {}
 
         wait
 
-        find "$TMPDIR" -mindepth 2 -maxdepth 2 -type f -name '*.json' -printf '%f\n' | sed 's/\.json$//' | sort -u | while read -r exchange; do
-          files=()
-          if [ -f "$HISTORY_DIR/$exchange.json" ]; then
-            files+=("$HISTORY_DIR/$exchange.json")
-          fi
-          for f in "$TMPDIR"/*/"$exchange".json; do
-            [[ -f "$f" ]] || continue
-            files+=("$f")
-          done
-          if [ ${#files[@]} -eq 0 ]; then
-            continue
-          fi
-          tmp=$(mktemp)
-          jq -s '
-            reduce .[] as $item (
-              {};
-              .dates = ((.dates // []) + ($item.dates // [])) | unique | sort
-              | ($item | keys_unsorted[] | select(. != "dates")) as $k
-              | .[$k] = {
-                  volume: ((.[$k].volume // []) + ($item[$k].volume // [])),
-                  value: ((.[$k].value // []) + ($item[$k].value // [])),
-                  tradesNumber: ((.[$k].tradesNumber // []) + ($item[$k].tradesNumber // [])),
-                  marketCap: ((.[$k].marketCap // []) + ($item[$k].marketCap // [])),
-                  itemsNumber: ((.[$k].itemsNumber // []) + ($item[$k].itemsNumber // []))
-                }
-            )
-          ' "${files[@]}" > "$tmp"
-          mv "$tmp" "$HISTORY_DIR/$exchange.json"
+        declare -A exchange_files
+        for file in "$TMPDIR"/*.json; do
+          [[ -f "$file" ]] || continue
+          exchange="${file##*/}"
+          exchange="${exchange%%__*}"
+          exchange_files["$exchange"]=1
         done
 
-        exit 0
+        for exchange in "${!exchange_files[@]}"; do
+          (
+            files=()
+            if [ -f "$HISTORY_DIR/$exchange.json" ]; then
+              files+=("$HISTORY_DIR/$exchange.json")
+            fi
+            
+            for f in "$TMPDIR/${exchange}__"*.json; do
+              [[ -f "$f" ]] && files+=("$f")
+            done
+            
+            [ ${#files[@]} -eq 0 ] && exit 0
+            
+            jq -s '
+              reduce .[] as $item (
+                {};
+                .dates = ((.dates // []) + ($item.dates // [])) | unique | sort
+                | ($item | keys_unsorted[] | select(. != "dates")) as $k
+                | .[$k] = {
+                    volume: ((.[$k].volume // []) + ($item[$k].volume // [])),
+                    value: ((.[$k].value // []) + ($item[$k].value // [])),
+                    tradesNumber: ((.[$k].tradesNumber // []) + ($item[$k].tradesNumber // [])),
+                    marketCap: ((.[$k].marketCap // []) + ($item[$k].marketCap // [])),
+                    itemsNumber: ((.[$k].itemsNumber // []) + ($item[$k].itemsNumber // []))
+                  }
+              )
+            ' "${files[@]}" > "$HISTORY_DIR/$exchange.json.tmp"
+            
+            mv "$HISTORY_DIR/$exchange.json.tmp" "$HISTORY_DIR/${exchange}-test.json"
+          ) &
+        done
+
+        wait
