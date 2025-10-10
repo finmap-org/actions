@@ -1,18 +1,18 @@
-name: 'Update Histogram Datafiles'
-description: 'Composite Github Action'
+name: Update Histogram Datafiles
+description: Composite Github Action
 
 inputs:
   repo:
     required: true
   start_date:
-    description: 'Start date, YYYY/MM/DD'
+    description: Start date, YYYY/MM/DD
     required: true
   end_date:
-    description: 'End date, YYYY/MM/DD'
+    description: End date, YYYY/MM/DD
     required: true
 
 runs:
-  using: "composite"
+  using: composite
   steps:
     - name: Read Inputs
       shell: bash
@@ -31,41 +31,35 @@ runs:
       run: |
         set -euo pipefail
 
-        # Enable nullglob so that if no *.json files exist in "$data_dir/${exchange}.json",
+        # Enable nullglob so that if no *.json files exist in "$data_dir/*.json",
         # the glob expands to an empty list and the loop is skipped instead of
         # processing the literal pattern string
         shopt -s nullglob
 
         function update_datafile() {
-          local current_date="$1"
-          local data_dir="${{ github.workspace }}/${REPO}/marketdata/${current_date}"
-          current_date=$(date -d "$current_date" +%Y-%m-%d)
+          local -n current_data=$1 # Use nameref to refer to the passed array name
+          local date="$2"
+          local data_dir="${{ github.workspace }}/${REPO}/marketdata/${date}"
+          date=$(date -d "$date" +%Y-%m-%d)
 
           for file in $data_dir/*.json; do
-            local length=$(jq '.securities.data | length' "$file")
+            local exchange=$(basename "$file" .json)
+
+            local length=$(jq '(.securities.data // []) | length' "$file")
             if [ $length -eq 0 ]; then
               continue
             fi
 
-            filename=$(basename "$file")
-            local datafile="${{ github.workspace }}/${REPO}/history/${filename}"
-
-            if [ -f "$datafile" ]; then
-              local data=$( jq . "$datafile" )
-
-              local is_date_present=$( jq --arg current_date "$current_date" '.dates | index($current_date) != null' <<< "$data" )
-              
-              if [ $is_date_present ]; then
-                continue # Skip existing dates
-              fi
-              
-              data=$(jq --arg current_date "$current_date" '.dates += [$current_date]' <<< "$data")
-            else
-              local data=$(jq -n --arg current_date "$current_date" '{dates: [$current_date]}')
+            local is_date_present=$( jq --arg date "$date" '.dates? | index($date) != null' <<< "${current_data[$exchange]}" )
+            
+            if [ $is_date_present ]; then
+              continue # Skip existing dates
             fi
 
+            current_data[$exchange]=$(jq --arg date "$date" '(.dates // []) += [$date]' <<< "${current_data[$exchange]}")
+
             local sector_list=$(jq -r '.securities.data[] | select( .[2] == "sector")' "$file")
-            for sector in sectors; do
+            for sector in $sector_list; do
               local sectorName=$(echo $sector | jq -r 'if .[3] != "" then .[7] else "Market Totals" end')
               local volume=$(echo $sector | jq -r .[14])
               local value=$(echo $sector | jq -r .[15])
@@ -73,32 +67,39 @@ runs:
               local marketCap=$(echo $sector | jq -r .[17])
               local itemsNumber=$(echo $sector | jq -r .[23])
 
-              data=$(jq --arg sectorName "$sectorName" \
-                --arg volume "$volume" \
-                --arg value "$value" \
-                --arg tradesNumber "$tradesNumber" \
-                --arg marketCap "$marketCap" \
-                --arg itemsNumber "$itemsNumber" \
+              current_data[$exchange]=$(jq --arg sectorName "$sectorName" \
+                --argjson volume "$volume" \
+                --argjson value "$value" \
+                --argjson tradesNumber "$tradesNumber" \
+                --argjson marketCap "$marketCap" \
+                --argjson itemsNumber "$itemsNumber" \
                 --compact-output '.[$sectorName] |= (
-                  (. // []) + [
-                    {
-                      volume: $volume,
-                      value: $value,
-                      tradesNumber: $tradesNumber,
-                      marketCap: $marketCap,
-                      itemsNumber: $itemsNumber
-                    }
-                  ]
-                )' <<< "$data")
+                  {
+                    volume: (.volume // []) + [$volume],
+                    value: (.value // []) + [$value],
+                    tradesNumber: (.tradesNumber // []) + [$tradesNumber],
+                    marketCap: (.marketCap // []) + [$marketCap],
+                    itemsNumber: (.itemsNumber // []) + [$itemsNumber]
+                  }
+                )' <<< "${current_data[$exchange]}")
             done
           done
         }
 
+        declare -A data
+        histogram_data_dir="${{ github.workspace }}/${REPO}/history"
+        mkdir -p "$histogram_data_dir"
+        for file in $histogram_data_dir/*.json; do
+          exchange=$(basename "$file" .json)
+          data["$exchange"]=$(jq '.' "$file")
+        done
+
+        # Limit the number of concurrent jobs
+        max_jobs=10
+
         # Convert dates to seconds since epoch for comparison
         start_seconds=$(date -d "$START_DATE" +%s)
         end_seconds=$(date -d "$END_DATE" +%s)
-        
-        max_jobs=10
 
         # Loop through the date range
         current_seconds=$start_seconds
@@ -112,7 +113,7 @@ runs:
             continue
           fi
 
-          update_datafile "$current_date" &
+          update_datafile data "$current_date" &
 
           while (( $(jobs -r | wc -l) >= max_jobs )); do
             wait -n  # Wait for any one job to finish if max concurrent jobs reached
@@ -121,3 +122,7 @@ runs:
 
         # Wait for all background jobs to finish
         wait
+
+        for exchange in "${!data[@]}"; do
+          echo "${data[$exchange]}" > "${histogram_data_dir}/${exchange}.json"
+        done
