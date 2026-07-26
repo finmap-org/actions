@@ -61,7 +61,7 @@ runs:
               mkdir -p "${WORKDIR}/history"
               history_file="${WORKDIR}/history/$(basename ${filename})"
               
-              mapfile -t SECTORS < <(jq -r '.securities.data[] | select(.[2] == "sector") | select(.[3] != "") | .[6]' amex.json | sort -u)
+              mapfile -t SECTORS < <(jq -r '.securities.data[] | select(.[2] == "sector") | select(.[3] != "") | .[6]' "${filename}" | sort -u)
 
               # Create JSON array of all sectors with zero values for initialization
               sectors_json=$(printf '%s\n' "${SECTORS[@]}" | jq -R -s 'split("\n")[:-1] | 
