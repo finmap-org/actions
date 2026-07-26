@@ -60,19 +60,8 @@ runs:
         
               mkdir -p "${WORKDIR}/history"
               history_file="${WORKDIR}/history/$(basename ${filename})"
-              tsv_file=$( echo "${WORKDIR}/sectors/$(basename ${filename} | sed 's/json/tsv/')" )
-              if [ ! -f "$tsv_file" ]; then
-                echo "ERROR: File doesn't exist: ${tsv_file}"
-                exit 1
-              fi
               
-              # Read predefined sectors from TSV file, excluding empty sectors
-              SECTORS=() # clear the array
-              while IFS=$'\t' read -r sector; do
-                if [ ! -z "$sector" ] && [ "$sector" != "sector" ]; then
-                  SECTORS+=("$sector")
-                fi
-              done < <(cut -f1 "${tsv_file}" | sort -u)
+              mapfile -t SECTORS < <(jq -r '.securities.data[] | select(.[2] == "sector") | select(.[3] != "") | .[6]' "${filename}" | sort -u)
 
               # Create JSON array of all sectors with zero values for initialization
               sectors_json=$(printf '%s\n' "${SECTORS[@]}" | jq -R -s 'split("\n")[:-1] | 
